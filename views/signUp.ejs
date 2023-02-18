@@ -6,20 +6,24 @@
 </head>
 <body>
 <h1>Sign Up</h1>
-<% if (errors) { %>
-    <ul>
-        <% for (var i = 0; i < errors.length; i++) { %>
-            <li><%= errors[i].msg %></li>
-        <% } %>
-    </ul>
-<% } %>
+
 
 <form action="/SignUp" method="post">
     <label for="username">Username</label><br>
     <input type="text" id="username" name="username" value=""><br>
     <label for="password">Password</label><br>
     <input type="text" id="password" name="password" value=""><br><br>
+    <% if (errors) { %>
+    <div>
+        <ul>
+            <% for (var i = 0; i < errors.length; i++) { %>
+                <li><%= errors[i].msg %></li>
+            <% } %>
+        </ul>
+    </div>
+    <% } %>
     <input type="submit" value="Submit">
+
 
 </form>
 
