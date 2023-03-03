@@ -61,8 +61,6 @@ function sendVerificationEmail(email, token, res){
     // Construct the verification link
     const verificationLink = `http://localhost:8080/verify?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
     // Construct the email message
-
-
     const message = {
         from: 'webabenablogtest@gmail.com',
         to: email,
@@ -135,13 +133,13 @@ app.post('/SignUp', [
 
     //check('password').matches(/\d/).withMessage('Password must contain a number')
 
-],(req,res)=>{
+],(req,res)=> {
     //Validating the input upon sign-up to stop SQL Injection
     const errors = validationResult(req);
     //let error_string = "Error: Username or password is incorrect"
     if (!errors.isEmpty()) {
-        return res.render("signUp", { errors: errors.array()});
-    }else{
+        return res.render("signUp", {errors: errors.array()});
+    } else {
         /*
             Sanitize the inputs to prevent SQL injection
            The regular expression /[^\w\s]/gi matches any character that is not a word character (alphanumeric) or whitespace,
@@ -158,29 +156,26 @@ app.post('/SignUp', [
         // Generate a pepper using crypto
         const pepper = crypto.randomBytes(16).toString('hex');
 
-        // Function to hash a password with salt and pepper
-            const saltedPassword = password + salt;
-            const pepperedPassword = saltedPassword + pepper;
-            const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
-            console.log(hashedPassword)
+                // Function to hash a password with salt and pepper
+                const saltedPassword = password + salt;
+                const pepperedPassword = saltedPassword + pepper;
+                const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
+                console.log(hashedPassword)
 
-        // Generate a unique verification token for email verification
-        const token = crypto.randomBytes(20).toString('hex');
-        // Insert the new user into the "users" table
-        const query = {
-            text: 'INSERT INTO users (username, password, email, isverified, verificationtoken) VALUES ($1, $2, $3, $4, $5)',
-            values: [username, hashedPassword, email, false, token]
-        };
-        client.connect()
-            .then(() => client.query(query))
-            .then(() => sendVerificationEmail(email, token, res))
-            .catch(err => console.error(err))
-            .finally(() => client.end());
-    }
-
-    //res.render('index')
-
-})
+                // Generate a unique verification token for email verification
+                const token = crypto.randomBytes(20).toString('hex');
+                // Insert the new user into the "users" table
+                const query = {
+                    text: 'INSERT INTO users (username, password, email, isverified, verificationtoken) VALUES ($1, $2, $3, $4, $5)',
+                    values: [username, hashedPassword, email, false, token]
+                };
+                client.connect()
+                    .then(() => client.query(query))
+                    .then(() => sendVerificationEmail(email, token, res))
+                    .catch(err => console.error(err))
+                    .finally(() => client.end());
+            }
+        })
 
 // Route for handling email verification
 app.get('/verify', async (req, res) => {
