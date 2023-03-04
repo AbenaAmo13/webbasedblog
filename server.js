@@ -5,8 +5,7 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const ejs = require('ejs');
 const {check, validationResult} = require('express-validator')
-const sgMail = require('@sendgrid/mail');
-
+const nodemailer = require("nodemailer");
 
 
 // Parameters
@@ -21,17 +20,7 @@ const client = new Client({
     user: process.env.user,
     database: process.env.database,
     password:  process.env.password,
-
-    //Temporary for development environment, however for production version it should be true
-    // ssl: true,
-    ssl:{
-        rejectUnauthorized: false,
-    }
-
 });
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -55,50 +44,42 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 
-//Functions
-function sendVerificationEmail(email, token, res){
+// async..await is not allowed in global scope, must use a wrapper
+async function sendVerificationEmail(email, token,res) {
 
     // Construct the verification link
     const verificationLink = `http://localhost:8080/verify?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
-    // Construct the email message
-    const message = {
-        from: 'webabenablogtest@gmail.com',
-        to: email,
-        subject: 'Verify your email address',
-        text: `Please click the following link to verify your email address: ${verificationLink}`,
+
+    // create reusable transporter object using the default SMTP transport
+    let transporter = nodemailer.createTransport({
+        host: process.env.email_host,
+        port: process.env.email_port,
+        secure: process.env.email_secure, // true for 465, false for other ports
+        auth: {
+            user: process.env.email_user, // generated ethereal user
+            pass: process.env.email_pass, // generated ethereal password
+        },
+    });
+
+    // send mail with defined transport object
+    let info = await transporter.sendMail({
+        from: process.env.email_user, // sender address
+        to: email, // list of receivers
+        subject: "Verification Link", // Subject line
+        text: `Please click the following link to verify your email address: ${verificationLink}`, // plain text body
         html: `Please click <a href="${verificationLink}">here</a> to verify your email address.`
-    };
+    });
 
-    // Send the verification email
-/*
-    const message = {
-        to: email,
-        from: 'abbyammo13@gmail.com',
-        subject: 'Verify Your Email',
-        html: `
-        <p>Hi there,</p>
-        <p>Please use the following verification code to verify your email address:</p>
-        <h1>${token}</h1>
-      `,
-    };
+    console.log("Message sent: %s", info.messageId);
+    // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
 
- */
-
-    // Send the email
-    sgMail
-        .send(message)
-        .then((response) => {
-            //console.log(response[0].statusCode)
-            //console.log(response[0].headers)
-            return res.render("sentemail", { email: email});
-        })
-        .catch((error) => {
-            console.error(error)
-        })
+    // Preview only available when sending through an Ethereal account
+    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+    // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
+    return res.render("sentemail", { email: email});
 }
 
-function verifyUser(client, email, token){
-
+function verifyUser(client, email, token) {
 
 
 }
@@ -162,20 +143,19 @@ app.post('/SignUp', [
                 const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
                 console.log(hashedPassword)
 
-                // Generate a unique verification token for email verification
-                const token = crypto.randomBytes(20).toString('hex');
-                // Insert the new user into the "users" table
-                const query = {
-                    text: 'INSERT INTO users (username, password, email, isverified, verificationtoken) VALUES ($1, $2, $3, $4, $5)',
-                    values: [username, hashedPassword, email, false, token]
-                };
-                client.connect()
-                    .then(() => client.query(query))
-                    .then(() => sendVerificationEmail(email, token, res))
-                    .catch(err => console.error(err))
-                    .finally(() => client.end());
-            }
-        })
+        // Generate a unique verification token for email verification
+        const token = crypto.randomBytes(20).toString('hex');
+        // Insert the new user into the "users" table
+        const query = {
+            text: 'INSERT INTO users (username, password, email, isverified, verificationtoken) VALUES ($1, $2, $3, $4, $5)',
+            values: [username, hashedPassword, email, false, token]
+        };
+
+        pool.query(query)
+            .then(() => sendVerificationEmail(email, token,res))
+            .catch(err=>console.error(err))
+    }
+})
 
 // Route for handling email verification
 app.get('/verify', async (req, res) => {
@@ -185,30 +165,16 @@ app.get('/verify', async (req, res) => {
     const token = req.query.token;
     console.log(email, token)
 
-    // Query the database to find the user with the corresponding email and token
-    const query = {
-        text: 'SELECT * FROM users WHERE email = $1 AND verificationtoken = $2',
-        values: [email, token]
-    };
     const isVerified = true
+    const newToken = ''
     // Use a SQL parameterized query to update the 'is_admin' column for the user with the specified email
     const updateQuery = {
-        text: 'UPDATE users SET isverified = $1 WHERE email = $2 AND verificationtoken = $3',
-        values: [isVerified, email, token],
+        text: 'UPDATE users SET isverified = $1, verificationtoken=$2 WHERE email = $3 AND verificationtoken = $4',
+        values: [isVerified,'',email, token],
     };
-
-
-
-
-    client.connect()
-        .then(() => client.query(query))
-        .then(()=> client.query(updateQuery))
-        .then(()=> console.log(`Updated ${result.rowCount} row(s)`))
-        .catch(err => console.error(err))
-        .finally(() => {
-            client.end();
-        });
-
+    pool.query(updateQuery)
+        .then(console.log('It works'))
+        .catch(err=>console.log(err))
 
 })
 
