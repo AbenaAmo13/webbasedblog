@@ -12,9 +12,9 @@ const nodemailer = require("nodemailer");
 const app = express();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const { Client, result } = require('pg');
+const { Pool, result } = require('pg');
 
-const client = new Client({
+const pool = new Pool({
     host: process.env.localhost,
     port: process.env.port,
     user: process.env.user,
@@ -27,12 +27,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.set('view engine', 'ejs');
 app.set('views', 'views');
 
-
-
-
 const port = 8080;
-
-
 
 //Server statically
 app.set('view engine', 'ejs');
@@ -42,7 +37,6 @@ app.use(express.static('client'));
 app.use(bodyParser.json());
 //Force input to be encoded correctly.
 app.use(bodyParser.urlencoded({ extended: true }));
-
 
 // async..await is not allowed in global scope, must use a wrapper
 async function sendVerificationEmail(email, token,res) {
@@ -81,11 +75,7 @@ async function sendVerificationEmail(email, token,res) {
 
 function verifyUser(client, email, token) {
 
-
 }
-
-
-
 
 //Routes
 app.get('/', (req, res) => {
@@ -137,11 +127,11 @@ app.post('/SignUp', [
         // Generate a pepper using crypto
         const pepper = crypto.randomBytes(16).toString('hex');
 
-                // Function to hash a password with salt and pepper
-                const saltedPassword = password + salt;
-                const pepperedPassword = saltedPassword + pepper;
-                const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
-                console.log(hashedPassword)
+        // Function to hash a password with salt and pepper
+        const saltedPassword = password + salt;
+        const pepperedPassword = saltedPassword + pepper;
+        const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
+        console.log(hashedPassword)
 
         // Generate a unique verification token for email verification
         const token = crypto.randomBytes(20).toString('hex');
@@ -163,7 +153,6 @@ app.get('/verify', async (req, res) => {
     // Extract the email and token from the URL query string
     const email = req.query.email;
     const token = req.query.token;
-    console.log(email, token)
 
     const isVerified = true
     const newToken = ''
@@ -177,8 +166,6 @@ app.get('/verify', async (req, res) => {
         .catch(err=>console.log(err))
 
 })
-
-
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));
 
