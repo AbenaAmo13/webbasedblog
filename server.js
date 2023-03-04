@@ -12,9 +12,9 @@ const nodemailer = require("nodemailer");
 const app = express();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const { Client, result } = require('pg');
+const { Pool, result } = require('pg');
 
-const client = new Client({
+const pool = new Pool({
     host: process.env.localhost,
     port: process.env.port,
     user: process.env.user,
