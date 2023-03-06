@@ -12,6 +12,11 @@ const nodemailer = require("nodemailer");
 const app = express();
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const algorithm = 'aes-256-cbc'; // encryption algorithm
+const key = process.env.my_secret_key; // secret key used for encryption
+const iv = crypto.randomBytes(16); // initialization vector
+
+
 const { Pool, result } = require('pg');
 
 const pool = new Pool({
@@ -79,11 +84,38 @@ async function sendVerificationEmail(email, token,res) {
     return res.render("sentemail", { email: email});
 }
 
-function verifyUser(client, email, token) {
 
-
+function encrypt(word) {
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    let encrypted = cipher.update(word, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return {
+        iv: iv.toString('hex'),
+        encryptedData: encrypted
+    };
 }
 
+function storePasswordInfo(filename, passwordData){
+
+    let obj = {
+        user_info: []
+    };
+
+    fs.readFile(filename, 'utf8', function readFileCallback(err, data){
+        if (err){
+            console.log(err);
+        } else {
+            obj = JSON.parse(data); //now it an object
+
+            obj.user_info.push(passwordData); //add some data
+            let user_json = JSON.stringify(obj); //convert it back to json
+            fs.writeFile(filename, user_json, 'utf8', function (err) {
+                if (err) throw err;
+                console.log('Saved!');
+            }); // write it back
+        }});
+
+}
 
 
 
@@ -107,8 +139,6 @@ app.post('/login', (req,res)=>{
 })
 
 app.post('/SignUp', [
-    check('username').isLength({ min: 5 }).withMessage("Username must have a minimum of 5 characters"),
-    check('username').isAlphanumeric().withMessage("Username must be an alphanumeric value"),
     check('password').isLength({ min: 8 }).withMessage("Password must have minimum of 8 length"),
     check('email').isEmail().withMessage("Please put a valid email address" )
 
@@ -126,29 +156,30 @@ app.post('/SignUp', [
            The regular expression /[^\w\s]/gi matches any character that is not a word character (alphanumeric) or whitespace,
             and the replace() method replaces these characters with an empty string.
         */
-        let username = req.body.username.replace(/[^\w\s]/gi, "");
         let password = req.body.password.replace(/[^\w\s]/gi, "");
         let email = req.body.email.replace(/[^\w@.-]/gi, "");
 
         // Generate a salt using bcrypt
-        const saltRounds = 10;
-        const salt = bcrypt.genSaltSync(saltRounds);
-
+        //const saltRounds = 10;
+        //const salt = bcrypt.genSaltSync(saltRounds);
+        const salt =  crypto.randomBytes(16).toString('hex');
+        //Store the salt in a file:
+        storePasswordInfo('info/salts.json',{email:email, salt:salt})
         // Generate a pepper using crypto
         const pepper = crypto.randomBytes(16).toString('hex');
+        storePasswordInfo('info/pepper.json',{email:email, pepper:pepper})
 
-                // Function to hash a password with salt and pepper
-                const saltedPassword = password + salt;
-                const pepperedPassword = saltedPassword + pepper;
-                const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
-                console.log(hashedPassword)
-
+        // Function to hash a password with salt and pepper
+        const saltedPassword = password + salt;
+        const pepperedPassword = saltedPassword + pepper;
+        //const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
+        const hashedPassword = crypto.createHash('sha256').update(pepperedPassword).digest('hex');
         // Generate a unique verification token for email verification
         const token = crypto.randomBytes(20).toString('hex');
         // Insert the new user into the "users" table
         const query = {
-            text: 'INSERT INTO users (username, password, email, isverified, verificationtoken) VALUES ($1, $2, $3, $4, $5)',
-            values: [username, hashedPassword, email, false, token]
+            text: 'INSERT INTO users (email, password, isverified, verificationtoken) VALUES ($1, $2, $3, $4)',
+            values: [email, password, false, token]
         };
 
         pool.query(query)
@@ -166,7 +197,6 @@ app.get('/verify', async (req, res) => {
     console.log(email, token)
 
     const isVerified = true
-    const newToken = ''
     // Use a SQL parameterized query to update the 'is_admin' column for the user with the specified email
     const updateQuery = {
         text: 'UPDATE users SET isverified = $1, verificationtoken=$2 WHERE email = $3 AND verificationtoken = $4',
