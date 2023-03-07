@@ -5,6 +5,13 @@
     <title>Title</title>
 </head>
 <body>
+
+<% if (typeof logout === 'true') { %>
+    <div class="alert alert-success" role="alert">
+        Logout successful!
+    </div>
+<% } %>
+
 <a href="/login">Login</a>
 <a href="/sign-up">Sign Up</a>
 

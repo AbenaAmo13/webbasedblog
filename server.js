@@ -1,11 +1,15 @@
 // Serve index.html on port 3000
 require('dotenv').config({path:'info.env'});
 const express = require('express');
+const https = require('https');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const ejs = require('ejs');
 const {check, validationResult} = require('express-validator')
 const nodemailer = require("nodemailer");
+const session = require('express-session');
+const { v4: uuid } = require('uuid')
+
 
 
 // Parameters
@@ -15,6 +19,7 @@ const crypto = require('crypto');
 const algorithm = 'aes-256-cbc'; // encryption algorithm
 const key = process.env.my_secret_key; // secret key used for encryption
 const iv = crypto.randomBytes(16); // initialization vector
+const oneDay = 1000 * 60 * 60 * 24;
 
 
 const { Pool, result } = require('pg');
@@ -49,12 +54,19 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 
+app.use(session({
+    secret: process.env.secret_key,
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false, maxAge: oneDay} //Secure should be set to true--> working on this
+
+}));
+
 // async..await is not allowed in global scope, must use a wrapper
 async function sendVerificationEmail(email, token,res) {
 
     // Construct the verification link
     const verificationLink = `http://localhost:8080/verify?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
-
     // create reusable transporter object using the default SMTP transport
     let transporter = nodemailer.createTransport({
         host: process.env.email_host,
@@ -67,19 +79,18 @@ async function sendVerificationEmail(email, token,res) {
     });
 
     // send mail with defined transport object
-    let info = await transporter.sendMail({
-        from: process.env.email_user, // sender address
-        to: email, // list of receivers
-        subject: "Verification Link", // Subject line
-        text: `Please click the following link to verify your email address: ${verificationLink}`, // plain text body
+    // Construct the email message
+    const message = await transporter.sendMail({
+        from: 'webabenablogtest@gmail.com',
+        to: email,
+        subject: 'Verify your email address',
+        text: `Please click the following link to verify your email address: ${verificationLink}`,
         html: `Please click <a href="${verificationLink}">here</a> to verify your email address.`
     });
-
-    console.log("Message sent: %s", info.messageId);
+    console.log("Message sent: %s", message.messageId);
     // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
-
     // Preview only available when sending through an Ethereal account
-    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(message));
     // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
     return res.render("sentemail", { email: email});
 }
@@ -117,6 +128,14 @@ function storePasswordInfo(filename, passwordData){
 
 }
 
+/*function generateOTP() {
+    const secret = crypto.randomBytes(16).toString('hex');
+    const time = Math.floor(Date.now() / 300000); // current time in 30 second intervals
+    const hash = crypto.createHmac('sha1', secret).update(time.toString()).digest('hex');
+    const offset = parseInt(hash.substr(-1), 16); // convert last character of hash to decimal
+    const otp = (parseInt(hash.substr(offset * 2, 8), 16) & 0x7fffffff).toString().substr(-6); // generate 6-digit OTP
+    return otp;
+}*/
 
 
 //Routes
@@ -125,7 +144,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-   res.render('login')
+   res.render('login', {logout: 'false', message: ''})
 });
 
 app.get('/sign-up', (req, res) => {
@@ -133,15 +152,37 @@ app.get('/sign-up', (req, res) => {
 });
 
 app.get('/email-sent',( req,res) => {
-    res.render('sentemail', {email: '' })
+    res.render('sentemail', {email: email})
+})
+
+app.get('/blogDashboard', (req, res)=>{
+    if(!req.session.usermail){
+        //Will be changed to contain name rather than email
+        res.send('Unauthorised Request')
+    }else{
+        res.render('blogDashboard', {firstname: req.session.usermail})
+    }
+})
+
+app.post('/logout', (req, res)=> {
+    req.session.destroy((err) => {
+        if (err) {
+            console.log(err);
+            res.status(500).send('Server Error');
+        } else {
+            res.clearCookie('connect.sid');
+            res.redirect('/');
+        }
+    });
 })
 app.post('/login', (req,res)=>{
 })
 
 app.post('/SignUp', [
+    check('name').exists({checkFalsy: true}).withMessage('You must type your name'),
+    check('name').isAlpha('en-US', {ignore: '\s'}).withMessage('The name must contain only letters'),
     check('password').isLength({ min: 8 }).withMessage("Password must have minimum of 8 length"),
-    check('email').isEmail().withMessage("Please put a valid email address" )
-
+    check('email').exists().isEmail().withMessage("Please put a valid email address" )
     //check('password').matches(/\d/).withMessage('Password must contain a number')
 
 ],(req,res)=> {
@@ -158,6 +199,7 @@ app.post('/SignUp', [
         */
         let password = req.body.password.replace(/[^\w\s]/gi, "");
         let email = req.body.email.replace(/[^\w@.-]/gi, "");
+        let firstname = req.body.name.replace(/[^\w\s]/gi, "");
 
         // Generate a salt using bcrypt
         //const saltRounds = 10;
@@ -172,14 +214,15 @@ app.post('/SignUp', [
         // Function to hash a password with salt and pepper
         const saltedPassword = password + salt;
         const pepperedPassword = saltedPassword + pepper;
-        //const hashedPassword = bcrypt.hashSync(pepperedPassword, saltRounds);
         const hashedPassword = crypto.createHash('sha256').update(pepperedPassword).digest('hex');
         // Generate a unique verification token for email verification
         const token = crypto.randomBytes(20).toString('hex');
+        const creationTime = Date.now();
+        //const token = speakeasy.generateSecret({ length: 20 });
         // Insert the new user into the "users" table
         const query = {
-            text: 'INSERT INTO users (email, password, isverified, verificationtoken) VALUES ($1, $2, $3, $4)',
-            values: [email, password, false, token]
+            text: 'INSERT INTO users (email, password, isverified, verificationtoken, firstname, creationtime) VALUES ($1, $2, $3, $4, $5, $6)',
+            values: [email, hashedPassword, false, token, firstname, creationTime]
         };
 
         pool.query(query)
@@ -189,25 +232,41 @@ app.post('/SignUp', [
 })
 
 // Route for handling email verification
+
 app.get('/verify', async (req, res) => {
     console.log('this got triggered')
     // Extract the email and token from the URL query string
     const email = req.query.email;
     const token = req.query.token;
-    console.log(email, token)
+    const currentTime = Date.now()
+    //const timeDifference = 2 * 60 * 60 * 1000; //Test time difference variable
+    const timeDifference = 24 * 60 * 60 * 1000;
 
-    const isVerified = true
-    // Use a SQL parameterized query to update the 'is_admin' column for the user with the specified email
-    const updateQuery = {
-        text: 'UPDATE users SET isverified = $1, verificationtoken=$2 WHERE email = $3 AND verificationtoken = $4',
-        values: [isVerified,'',email, token],
+    //Check if the token in the link is correct as the one in the database
+   const tokenQuery = {
+        text: 'SELECT verificationtoken FROM users WHERE email = $1 AND $2 - creationtime < $3',
+        values: [email, currentTime,timeDifference] // 24 hours in milliseconds
     };
-    pool.query(updateQuery)
-        .then(console.log('It works'))
-        .catch(err=>console.log(err))
 
+    pool.query(tokenQuery, (err, result) => {
+        if (err) {
+            console.log(err);
+        } else {
+            if (result.rows.length > 0 && token=== result.rows[0].verificationtoken) {
+                const updateQuery = {
+                    text: 'UPDATE users SET isverified = $1 WHERE email = $2 AND verificationtoken = $3',
+                    values: [true, email, token],
+                };
+                pool.query(updateQuery)
+                    .then(()=>{
+                        res.render('login', {message: 'Your account has been verified'})
+                    }).catch(err=>console.log(err));
+            }else{
+                return res.render('verificationError')
+            }
+        }
+    })
 })
-
 
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));
