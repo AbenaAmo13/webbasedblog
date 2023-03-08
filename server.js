@@ -14,7 +14,6 @@ const { v4: uuid } = require('uuid')
 
 // Parameters
 const app = express();
-const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const algorithm = 'aes-256-cbc'; // encryption algorithm
 const key = process.env.my_secret_key; // secret key used for encryption
@@ -30,6 +29,18 @@ const pool = new Pool({
     user: process.env.user,
     database: process.env.database,
     password:  process.env.password,
+});
+
+
+// create reusable transporter object using the default SMTP transport
+let transporter = nodemailer.createTransport({
+    host: process.env.email_host,
+    port: process.env.email_port,
+    secure: process.env.email_secure, // true for 465, false for other ports
+    auth: {
+        user: process.env.email_user, // generated ethereal user
+        pass: process.env.email_pass, // generated ethereal password
+    },
 });
 
 // Middleware
@@ -67,17 +78,6 @@ async function sendVerificationEmail(email, token,res) {
 
     // Construct the verification link
     const verificationLink = `http://localhost:8080/verify?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
-    // create reusable transporter object using the default SMTP transport
-    let transporter = nodemailer.createTransport({
-        host: process.env.email_host,
-        port: process.env.email_port,
-        secure: process.env.email_secure, // true for 465, false for other ports
-        auth: {
-            user: process.env.email_user, // generated ethereal user
-            pass: process.env.email_pass, // generated ethereal password
-        },
-    });
-
     // send mail with defined transport object
     // Construct the email message
     const message = await transporter.sendMail({
@@ -93,6 +93,25 @@ async function sendVerificationEmail(email, token,res) {
     console.log("Preview URL: %s", nodemailer.getTestMessageUrl(message));
     // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
     return res.render("sentemail", { email: email});
+}
+
+
+async function TwoFactorEmail(email, token,res) {
+    // send mail with defined transport object
+    // Construct the email message
+    const message = await transporter.sendMail({
+        from: 'webabenablogtest@gmail.com',
+        to: email,
+        subject: 'One Time PassCode',
+        text: `This is your one time token: ${token}`,
+        html: `This is your token: <b> ${token}</b>`
+    });
+    console.log("Message sent: %s", message.messageId);
+    // Message sent: <b658f8ca-6296-ccf4-8306-87d57a0b4321@example.com>
+    // Preview only available when sending through an Ethereal account
+    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(message));
+    // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
+    return res.render("verifyToken", { message: email, errors: false, email: email});
 }
 
 
@@ -183,16 +202,71 @@ app.get('/blogDashboard', (req, res)=>{
     }
 })
 
+app.get('/twofa', (req, res)=>{
+  res.render('verifyToken', {errors:false, message:false, email:false})
+})
+
+app.post('/twofa', [
+    check('verificationtoken').isNumeric().exists({checkFalsy: true}).isLength({max:6}),
+    check('email').exists({checkFalsy: true}).isEmail(),
+    ],
+    (req, res)=>{
+        const errors = validationResult(req);
+        console.log('it appears here')
+        if(!errors.isEmpty()){
+            return res.render("verifyToken", {errors: "Invalid token", email:false, message: false});
+        }else{
+            let currentTime = Date.now();
+            const timeDifference = 24 * 60 * 60 * 1000; //24 hrs testing
+            //sanitized input to prevent XSS attacks
+            const sanitizedTokenInput = req.body.verificationtoken.replace(/[<>&'"]/g, '');
+            let emailInput = req.body.email.replace(/[^\w.@+-]/g, '');
+            console.log(emailInput)
+            console.log(sanitizedTokenInput)
+
+
+            //Check if the token in the link is correct as the one in the database
+            const twofatokenquery = {
+                text: 'SELECT otp FROM otps WHERE otp = $1 AND $2 - creationtime < $3 AND used = $4 AND email = $5 ',
+                values: [sanitizedTokenInput, currentTime,timeDifference, false, emailInput],  // 24 hours in milliseconds
+            };
+
+            const deleteTokenQuery = {
+                text: 'DELETE FROM otps WHERE otp = $1  AND email= $2',
+                values: [sanitizedTokenInput, emailInput] // 24 hours in milliseconds
+            };
+
+            pool.query(twofatokenquery).then((result)=>{
+                console.log(result.rows[0]);
+                if(result.rows.length > 0){
+                    //Validate the user
+                    req.session.usermail = emailInput;
+                    res.redirect('/blogDashboard');
+                    pool.query(deleteTokenQuery)
+                }else{
+                   res.render('verifyToken', {errors:'Invalid token', email:emailInput, message: emailInput})
+                }
+            })
+
+        }
+
+
+})
+
+
+
+
 app.post('/logout', (req, res)=> {
     req.session.destroy((err) => {
         if (err) {
             console.log(err);
             res.status(500).send('Server Error');
         } else {
-            res.clearCookie('connect.sid');
             res.redirect('/');
         }
     });
+
+    res.clearCookie('connect.sid');
 })
 app.post('/login', [
     check('email').exists({checkFalsy: true}).isEmail(),
@@ -222,7 +296,36 @@ app.post('/login', [
 
         pool.query(userQuery).then((result)=>{
             if(result.rows.length> 0 ){
-                res.render('login', {errors: false, message:'User exists'})
+                //Update the token with the new token:
+                let token = generateOTP();
+                let creationTime = Date.now();
+                const selectQuery = {
+                    text: 'SELECT otp, used FROM otps WHERE email = $1',
+                    values: [email] // 24 hours in milliseconds
+                };
+                pool.query(selectQuery)
+                    .then((result)=>{
+                        if(result.rows.length > 0){
+                            const updateQuery = {
+                            text: 'UPDATE otps SET used = $1, otp = $2, creationtime= $3 WHERE email = $4',
+                            values: [false, token, creationTime, email]
+                        };
+                            pool.query(updateQuery);
+                        }else{
+                            //This means that there has been no otp set before
+                            const query = {
+                                text: 'INSERT INTO otps (email, otp, used, creationtime) VALUES ($1, $2, $3, $4)',
+                                values: [email, token, false, creationTime]
+                            };
+                            pool.query(query)
+                        }
+
+                    })
+                //Two factor Authentication.
+                //sendVerificationEmail(email, token, res);
+                TwoFactorEmail(email, token, res)
+               // res.render('verifyToken', {errors: false, message:email})
+
 
             }else{
                 res.render('login', {errors: 'Username and/or password is incorrect', message:false})
@@ -297,13 +400,12 @@ app.get('/verify', async (req, res) => {
     const email = req.query.email;
     const token = req.query.token;
     const currentTime = Date.now()
-    //const timeDifference = 2 * 60 * 60 * 1000; //Test time difference variable
+    const fiveMinutesInMilliseconds = 5 * 60 * 1000;
     const timeDifference = 24 * 60 * 60 * 1000;
-
     //Check if the token in the link is correct as the one in the database
    const tokenQuery = {
         text: 'SELECT verificationtoken FROM users WHERE email = $1 AND $2 - creationtime < $3',
-        values: [email, currentTime,timeDifference] // 24 hours in milliseconds
+        values: [email, currentTime,fiveMinutesInMilliseconds] // 24 hours in milliseconds
     };
 
     pool.query(tokenQuery, (err, result) => {
