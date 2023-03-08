@@ -107,11 +107,9 @@ function encrypt(word) {
 }
 
 function storePasswordInfo(filename, passwordData){
-
     let obj = {
         user_info: []
     };
-
     fs.readFile(filename, 'utf8', function readFileCallback(err, data){
         if (err){
             console.log(err);
@@ -125,17 +123,38 @@ function storePasswordInfo(filename, passwordData){
                 console.log('Saved!');
             }); // write it back
         }});
-
 }
 
-/*function generateOTP() {
+
+async function getPasswordInfo(email) {
+    try {
+        const saltData = await fs.promises.readFile('info/salts.json', 'utf8');
+        const saltObj = JSON.parse(saltData);
+        const userSalt = saltObj.user_info.find(u => u.email === email);
+        const pepperData = await fs.promises.readFile('info/pepper.json', 'utf8');
+        const pepperObj = JSON.parse(pepperData);
+        const userPepper= pepperObj.user_info.find(u => u.email === email);
+        if(userPepper && userSalt){
+            return {salt: userSalt.salt, pepper: userPepper.pepper};
+        }else{
+            return null;
+        }
+        //return userSalt ? userSalt.salt : null;
+    } catch (error) {
+        console.log(error);
+        return null;
+    }
+}
+
+
+function generateOTP() {
     const secret = crypto.randomBytes(16).toString('hex');
     const time = Math.floor(Date.now() / 300000); // current time in 30 second intervals
     const hash = crypto.createHmac('sha1', secret).update(time.toString()).digest('hex');
     const offset = parseInt(hash.substr(-1), 16); // convert last character of hash to decimal
     const otp = (parseInt(hash.substr(offset * 2, 8), 16) & 0x7fffffff).toString().substr(-6); // generate 6-digit OTP
     return otp;
-}*/
+}
 
 
 //Routes
@@ -144,7 +163,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/login', (req, res) => {
-   res.render('login', {logout: 'false', message: ''})
+   res.render('login', {logout: 'false', message: false, errors: false})
 });
 
 app.get('/sign-up', (req, res) => {
@@ -175,7 +194,46 @@ app.post('/logout', (req, res)=> {
         }
     });
 })
-app.post('/login', (req,res)=>{
+app.post('/login', [
+    check('email').exists({checkFalsy: true}).isEmail(),
+    check('password').isLength({ min: 8 }),
+
+
+],async(req,res)=>{
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.render("login", {errors: "Username and/or password is incorrect", message:false});
+    }else{
+        //Username and password:
+        const email = req.body.email;
+        let password = req.body.password.replace(/[^\w\s]/gi, "");
+        //Converting password to hash version to verify the password
+        const password_info = await getPasswordInfo(email);
+        const password_salt = password_info.salt;
+        const password_pepper = password_info.pepper;
+        const saltedPassword = password + password_salt
+        const pepperedPassword = saltedPassword + password_pepper;
+        const hashedPassword = crypto.createHash('sha256').update(pepperedPassword).digest('hex');
+
+        const userQuery = {
+            text: 'SELECT email, password FROM users WHERE email = $1 AND password =$2 AND isverified =$3',
+            values: [email, hashedPassword, true] // 24 hours in milliseconds
+        };
+
+        pool.query(userQuery).then((result)=>{
+            if(result.rows.length> 0 ){
+                res.render('login', {errors: false, message:'User exists'})
+
+            }else{
+                res.render('login', {errors: 'Username and/or password is incorrect', message:false})
+            }
+        }).catch(error=>{
+            res.render('login', {errors: 'Server Error', message:false})
+        })
+    }
+
+
+
 })
 
 app.post('/SignUp', [
@@ -188,7 +246,6 @@ app.post('/SignUp', [
 ],(req,res)=> {
     //Validating the input upon sign-up to stop SQL Injection
     const errors = validationResult(req);
-    //let error_string = "Error: Username or password is incorrect"
     if (!errors.isEmpty()) {
         return res.render("signUp", {errors: errors.array()});
     } else {
@@ -198,6 +255,7 @@ app.post('/SignUp', [
             and the replace() method replaces these characters with an empty string.
         */
         let password = req.body.password.replace(/[^\w\s]/gi, "");
+        console.log(password)
         let email = req.body.email.replace(/[^\w@.-]/gi, "");
         let firstname = req.body.name.replace(/[^\w\s]/gi, "");
 
@@ -205,12 +263,13 @@ app.post('/SignUp', [
         //const saltRounds = 10;
         //const salt = bcrypt.genSaltSync(saltRounds);
         const salt =  crypto.randomBytes(16).toString('hex');
+        console.log(salt)
         //Store the salt in a file:
         storePasswordInfo('info/salts.json',{email:email, salt:salt})
         // Generate a pepper using crypto
         const pepper = crypto.randomBytes(16).toString('hex');
         storePasswordInfo('info/pepper.json',{email:email, pepper:pepper})
-
+        console.log(salt)
         // Function to hash a password with salt and pepper
         const saltedPassword = password + salt;
         const pepperedPassword = saltedPassword + pepper;
@@ -218,7 +277,6 @@ app.post('/SignUp', [
         // Generate a unique verification token for email verification
         const token = crypto.randomBytes(20).toString('hex');
         const creationTime = Date.now();
-        //const token = speakeasy.generateSecret({ length: 20 });
         // Insert the new user into the "users" table
         const query = {
             text: 'INSERT INTO users (email, password, isverified, verificationtoken, firstname, creationtime) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -259,7 +317,7 @@ app.get('/verify', async (req, res) => {
                 };
                 pool.query(updateQuery)
                     .then(()=>{
-                        res.render('login', {message: 'Your account has been verified'})
+                        res.render('login', {message: 'Your account has been verified', errors: false})
                     }).catch(err=>console.log(err));
             }else{
                 return res.render('verificationError')
