@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="client/css/styles.css">
+</head>
+<body>
+<form method="post" action="/addBlogPost">
+    <label for="blogTitle">Blog Title</label><br>
+    <input type="text" id="blogTitle" name="blogTitle" value="" required><br>
+    <label for="blogData">Blog Data</label><br>
+    <textarea rows="4" cols="50" name="blogData" required>
+Enter text here...</textarea>
+    <br><br>
+    <input type="submit" value="Submit">
+</form>
+<% if (errors) { %>
+    <div>
+        <p> <b> <%= errors%> </b></p>
+    </div>
+<% } %>
+
+
+
+
+</body>
+</html>

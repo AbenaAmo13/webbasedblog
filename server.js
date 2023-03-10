@@ -67,11 +67,24 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use(session({
     secret: process.env.secret_key,
+    genid: (req) => {
+        return uuid(); // use UUIDs for session IDs
+    },
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false, maxAge: oneDay} //Secure should be set to true--> working on this
+    cookie: {
+        secure: true,
+        maxAge: 24 * 60 * 60 * 1000, // 1 day
+        sameSite: 'lax',
+    }
 
 }));
+
+const options = {
+    key: fs.readFileSync('key.pem'),
+    cert: fs.readFileSync('cert.pem')
+};
+
 
 // async..await is not allowed in global scope, must use a wrapper
 async function sendVerificationEmail(email, token,res) {
@@ -145,7 +158,7 @@ function storePasswordInfo(filename, passwordData){
 }
 
 
-async function getPasswordInfo(email) {
+async function getPasswordInfo(email, res) {
     try {
         const saltData = await fs.promises.readFile('info/salts.json', 'utf8');
         const saltObj = JSON.parse(saltData);
@@ -156,12 +169,13 @@ async function getPasswordInfo(email) {
         if(userPepper && userSalt){
             return {salt: userSalt.salt, pepper: userPepper.pepper};
         }else{
-            return null;
+            res.render('login', {errors: 'Username and/or password is incorrect', message:false})
         }
         //return userSalt ? userSalt.salt : null;
     } catch (error) {
         console.log(error);
-        return null;
+        return res.render('login', {errors: 'Username and/or password is incorrect', message:false})
+
     }
 }
 
@@ -198,12 +212,37 @@ app.get('/blogDashboard', (req, res)=>{
         //Will be changed to contain name rather than email
         res.send('Unauthorised Request')
     }else{
-        res.render('blogDashboard', {firstname: req.session.usermail})
+        res.render('login', {logout: 'false', message: false, errors: false})
     }
 })
 
 app.get('/twofa', (req, res)=>{
   res.render('verifyToken', {errors:false, message:false, email:false})
+})
+
+app.get('/addBlogPost', (req, res)=>{
+    res.render('addBlogPost', {errors:false})
+})
+
+
+app.post('/addBlogPost', [
+        check('blogTitle').exists().isAlphanumeric(),
+        check('blogData').exists({checkFalsy: true}).isAlphanumeric(),
+    ]
+    , (req, res)=>{
+        const errors = validationResult(req);
+        if(!errors.isEmpty()){
+            return res.render("addBlogPost", {errors: "Please make sure that you have filled all the input fields with only alphanumeric values"});
+
+        }else{
+            //sanitized input to prevent XSS attacks
+            const blogTitle = req.body.blogTitle.replace(/[<>&'"]/g, '');
+            let blogData = req.body.blogData.replace(/[^\w.@+-]/g, '');
+            console.log(blogTitle);
+            console.log(blogData);
+
+        }
+
 })
 
 app.post('/twofa', [
@@ -237,7 +276,7 @@ app.post('/twofa', [
             };
 
             pool.query(twofatokenquery).then((result)=>{
-                console.log(result.rows[0]);
+                //console.log(result.rows[0]);
                 if(result.rows.length > 0){
                     //Validate the user
                     req.session.usermail = emailInput;
@@ -256,6 +295,8 @@ app.post('/twofa', [
 
 
 
+
+
 app.post('/logout', (req, res)=> {
     req.session.destroy((err) => {
         if (err) {
@@ -265,14 +306,11 @@ app.post('/logout', (req, res)=> {
             res.redirect('/');
         }
     });
-
     res.clearCookie('connect.sid');
 })
 app.post('/login', [
     check('email').exists({checkFalsy: true}).isEmail(),
     check('password').isLength({ min: 8 }),
-
-
 ],async(req,res)=>{
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -282,7 +320,7 @@ app.post('/login', [
         const email = req.body.email;
         let password = req.body.password.replace(/[^\w\s]/gi, "");
         //Converting password to hash version to verify the password
-        const password_info = await getPasswordInfo(email);
+        const password_info = await getPasswordInfo(email, res);
         const password_salt = password_info.salt;
         const password_pepper = password_info.pepper;
         const saltedPassword = password + password_salt
@@ -293,7 +331,6 @@ app.post('/login', [
             text: 'SELECT email, password FROM users WHERE email = $1 AND password =$2 AND isverified =$3',
             values: [email, hashedPassword, true] // 24 hours in milliseconds
         };
-
         pool.query(userQuery).then((result)=>{
             if(result.rows.length> 0 ){
                 //Update the token with the new token:
@@ -322,11 +359,7 @@ app.post('/login', [
 
                     })
                 //Two factor Authentication.
-                //sendVerificationEmail(email, token, res);
                 TwoFactorEmail(email, token, res)
-               // res.render('verifyToken', {errors: false, message:email})
-
-
             }else{
                 res.render('login', {errors: 'Username and/or password is incorrect', message:false})
             }
@@ -334,9 +367,6 @@ app.post('/login', [
             res.render('login', {errors: 'Server Error', message:false})
         })
     }
-
-
-
 })
 
 app.post('/SignUp', [
@@ -429,7 +459,14 @@ app.get('/verify', async (req, res) => {
 })
 
 
-app.listen(port, () => console.log(`Example app listening on port ${port}!`));
+
+const server = https.createServer(options, app);
+
+server.listen(8080, () => {
+    console.log('Server running at https://localhost:8080/');
+});
+
+//app.listen(port, () => console.log(`Example app listening on port ${port}!`));
 
 
 
