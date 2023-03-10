@@ -74,6 +74,7 @@ app.use(session({
     saveUninitialized: true,
     cookie: {
         secure: true,
+        httpOnly:true,
         maxAge: 24 * 60 * 60 * 1000, // 1 day
         sameSite: 'lax',
     }
@@ -81,8 +82,8 @@ app.use(session({
 }));
 
 const options = {
-    key: fs.readFileSync('key.pem'),
-    cert: fs.readFileSync('cert.pem')
+    key: fs.readFileSync('mydomain.local+3-key.pem'),
+    cert: fs.readFileSync('mydomain.local+3.pem')
 };
 
 
@@ -107,6 +108,53 @@ async function sendVerificationEmail(email, token,res) {
     // Preview URL: https://ethereal.email/message/WaQKMgKddxQDoou...
     return res.render("sentemail", { email: email});
 }
+
+function validateInputsAll(reqBody) {
+    const errors = [];
+    const regex = /^[a-zA-Z,.!?'"()\s]+$/; // regular expression to match letters and punctuations
+
+    for (const inputName in reqBody) {
+        const input = reqBody[inputName];
+        if (!regex.test(input) || !input) {
+            errors.push(`There is an error in the "${inputName}" input`);
+        }
+    }
+    if (errors.length > 0) {
+        return { isValid: false, errors };
+    } else {
+        return { isValid: true };
+    }
+}
+
+
+
+function validInputs(input) {
+    const errors = [];
+    const regex = /^[a-zA-Z,.!?'"()\s]+$/; // regular expression to match letters and punctuations
+        if (!regex.test(input) || !input) {
+            errors.push(`There is an error in the "${inputName}" input`);
+        }
+    if (errors.length > 0) {
+        return { isValid: false, errors };
+    } else {
+        return { isValid: true };
+    }
+}
+
+
+function escapeInput(input) {
+    const escapeChars = {
+        '<': '&lt;',
+        '>': '&gt;',
+        '&': '&amp;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '/': '&#x2F;'
+    };
+    const regex = /[<>&"'/]/g;
+    return input.replace(regex, (match) => escapeChars[match]);
+}
+
 
 
 async function TwoFactorEmail(email, token,res) {
@@ -190,6 +238,20 @@ function generateOTP() {
 }
 
 
+// Create a middleware function to generate and store a CRF token
+function generateCRSFToken(req, res, next) {
+    // Generate a random token using crypto module
+    // Store the token in the session variable
+    req.session.token = crypto.randomBytes(32).toString('hex');
+    console.log(req.session.token)
+    // Pass the token to the next middleware function
+    next();
+}
+
+
+
+
+
 //Routes
 app.get('/', (req, res) => {
     res.render('index')
@@ -210,9 +272,25 @@ app.get('/email-sent',( req,res) => {
 app.get('/blogDashboard', (req, res)=>{
     if(!req.session.usermail){
         //Will be changed to contain name rather than email
-        res.send('Unauthorised Request')
+        res.redirect('/login')
+
     }else{
-        res.render('login', {logout: 'false', message: false, errors: false})
+        //Get all the blog posts from the database:
+        const getAllPostQuery = {
+            text: 'SELECT * FROM blogdata ORDER BY datecreated DESC ',
+        };
+        pool.query(getAllPostQuery, (err, result)=>{
+            if (err){
+                console.error(err);
+                res.render('blogDashboard', {firstname: req.session.usermail, errors: "There was an error retrieving the posts", post: '' })
+
+            }else{
+                const blogPosts = result.rows;
+                console.log("The posts are " + blogPosts);
+                res.render('blogDashboard', {firstname: req.session.usermail, errors: false, posts: blogPosts })
+            }
+        })
+
     }
 })
 
@@ -220,28 +298,48 @@ app.get('/twofa', (req, res)=>{
   res.render('verifyToken', {errors:false, message:false, email:false})
 })
 
-app.get('/addBlogPost', (req, res)=>{
-    res.render('addBlogPost', {errors:false})
+app.get('/addBlogPost', generateCRSFToken, (req, res)=>{
+    if(!req.session.usermail){
+        //Will be changed to contain name rather than email
+        res.redirect('/login')
+    }else{
+
+        res.render('addBlogPost', {errors:false, csrfToken: req.session.token})
+
+    }
 })
 
 
-app.post('/addBlogPost', [
-        check('blogTitle').exists().isAlphanumeric(),
-        check('blogData').exists({checkFalsy: true}).isAlphanumeric(),
-    ]
-    , (req, res)=>{
-        const errors = validationResult(req);
-        if(!errors.isEmpty()){
-            return res.render("addBlogPost", {errors: "Please make sure that you have filled all the input fields with only alphanumeric values"});
+app.post('/addBlogPost', (req, res)=>{
+        //const errors = validationResult(req);
+        const blogTitle = escapeInput(req.body.blogTitle)
+        const  blogData  = escapeInput(req.body.blogData)
+        const timeCreated = Date.now().toString();
+        const dateCreated = new Date(parseInt(timeCreated)).toISOString().slice(0, 10);
 
+    // Get the CRF token value from the request body
+        const userToken = req.body.csrftokenvalue;
+        // Get the CRF token value from the session variable
+        const serverToken = req.session.token;
+        if(!validInputs(blogTitle) || userToken !== serverToken ||!validInputs(blogTitle)) {
+            //return res.render("addBlogPost", {errors: errors.array(), csrfToken:req.session.token});
+            return res.render("addBlogPost", {errors: 'There is an error in your input', csrfToken:req.session.token});
         }else{
-            //sanitized input to prevent XSS attacks
-            const blogTitle = req.body.blogTitle.replace(/[<>&'"]/g, '');
-            let blogData = req.body.blogData.replace(/[^\w.@+-]/g, '');
+            const insertQuery = {
+                text: 'INSERT INTO blogdata (blogtitle, bloginfo, datecreated) VALUES ($1, $2, $3)',
+                values: [blogTitle, blogData, dateCreated]
+            };
+            pool.query(insertQuery)
+                .then(res.redirect('/blogDashboard'))
+                .catch(err=>{
+                    console.log(err)
+                    res.render('addBlogPost', {errors: 'There was an error with adding the blog post'})
+                })
             console.log(blogTitle);
             console.log(blogData);
-
         }
+
+
 
 })
 
@@ -303,10 +401,11 @@ app.post('/logout', (req, res)=> {
             console.log(err);
             res.status(500).send('Server Error');
         } else {
+            res.clearCookie('connect.sid');
             res.redirect('/');
         }
     });
-    res.clearCookie('connect.sid');
+
 })
 app.post('/login', [
     check('email').exists({checkFalsy: true}).isEmail(),
@@ -462,7 +561,7 @@ app.get('/verify', async (req, res) => {
 
 const server = https.createServer(options, app);
 
-server.listen(8080, () => {
+server.listen(port, () => {
     console.log('Server running at https://localhost:8080/');
 });
 

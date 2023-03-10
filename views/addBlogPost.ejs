@@ -7,6 +7,8 @@
 </head>
 <body>
 <form method="post" action="/addBlogPost">
+    <!-- Add the following code to include the CSRF token as a hidden field -->
+    <input type="hidden" name="csrftokenvalue" value="<%= csrfToken %>">
     <label for="blogTitle">Blog Title</label><br>
     <input type="text" id="blogTitle" name="blogTitle" value="" required><br>
     <label for="blogData">Blog Data</label><br>
@@ -20,8 +22,6 @@ Enter text here...</textarea>
         <p> <b> <%= errors%> </b></p>
     </div>
 <% } %>
-
-
 
 
 </body>
