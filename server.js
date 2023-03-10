@@ -294,6 +294,87 @@ app.get('/readblog/:id', (req, res) => {
 
 });
 
+
+
+app.get('/editblog/:id', (req, res)=>{
+    if (req.session.usermail){
+        const blogId = req.params.id;
+        const getBlogPostQuery = {
+            text: 'SELECT * FROM blogData WHERE id = $1',
+            values: [blogId]
+        };
+        pool.query(getBlogPostQuery, (err, result)=>{
+            if(err){
+                res.render('editBlog', {errors: 'There was an error with updating the blog', post: '', firstname: req.session.usermail})
+            }else{
+                const blogPost = result.rows[0]
+                res.render('editBlog', {errors: false, post: blogPost, firstname: req.session.usermail })
+            }
+        })
+
+    }else{
+        res.redirect('/login')
+
+    }
+})
+
+app.post('/editblog/:id', (req, res)=>{
+    if(req.session.usermail){
+        const blogId = req.params.id;
+        const getBlogPostQuery = {
+            text: 'SELECT * FROM blogData WHERE id = $1',
+            values: [blogId]
+        };
+
+        pool.query(getBlogPostQuery,(err, result)=>{
+            if(err){
+                res.render('editBlog', {errors: 'There was an error with updating the blog', post: '', firstname: req.session.usermail})
+
+            }else{
+                const blogPost = result.rows[0]
+                const blogTitle = escapeInput(req.body.blogtitle);
+                const blogDescription = escapeInput(req.body.blogdescription);
+                const blogInfo = escapeInput(req.body.bloginfo);
+                console.log(blogInfo, blogDescription, blogTitle)
+                const timeCreated = Date.now().toString();
+                const dateCreated = new Date(parseInt(timeCreated)).toISOString().slice(0, 10);
+                //let allData = [blogTitle, blogDescription, blogInfo]
+                let allData = { blogTitle: blogTitle, blogDescription:blogDescription , blogInfo: blogInfo };
+
+                if(!validateInputsAll(allData)){
+                    return res.render("editBlog", {errors: 'There is an error in your input', firstname: req.session.usermail, post:blogPost});
+                }else{
+                    const updateQuery = {
+                        text: 'UPDATE blogData SET blogtitle = $1, bloginfo = $2, datecreated= $3, blogdescription = $4 WHERE id = $5',
+                        values: [blogTitle, blogInfo, dateCreated, blogDescription, blogId]
+                    };
+                    pool.query(updateQuery).then((result)=>{
+                        res.redirect('/blogDashboard')
+                    }).catch((err)=>{
+                        console.log(err)
+                        return res.render("editBlog", {errors: 'There was an error when trying to edit your blog', firstname: req.session.usermail, post:blogPost});
+                    })
+
+
+                }
+
+
+
+
+
+
+
+            }
+        })
+
+
+
+
+    }else{
+        res.redirect('/login')
+    }
+})
+
 app.post('/deleteblog/:id', (req, res)=>{
     if(req.session.usermail){
         const id = req.params.id;
@@ -316,6 +397,8 @@ app.post('/deleteblog/:id', (req, res)=>{
         res.redirect('/login')
     }
 })
+
+
 
 
 
@@ -384,7 +467,9 @@ app.post('/addBlogPost', (req, res)=>{
                 values: [blogTitle, blogData, dateCreated, blogDescription, author]
             };
             pool.query(insertQuery)
-                .then(res.redirect('/blogDashboard'))
+                .then((results)=>{
+                     console.log(results.rows)
+                        res.redirect('/blogDashboard')})
                 .catch(err=>{
                     console.log(err)
                     res.render('addBlogPost', {errors: 'There was an error with adding the blog post'})
