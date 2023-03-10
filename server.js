@@ -134,7 +134,7 @@ function validInputs(input) {
     const errors = [];
     const regex = /^[a-zA-Z,.!?'"()\s]+$/; // regular expression to match letters and punctuations
         if (!regex.test(input) || !input) {
-            errors.push(`There is an error in the "${inputName}" input`);
+            errors.push(`There is an error in the "${input}" input`);
         }
     if (errors.length > 0) {
         return { isValid: false, errors };
@@ -294,6 +294,29 @@ app.get('/readblog/:id', (req, res) => {
 
 });
 
+app.post('/deleteblog/:id', (req, res)=>{
+    if(req.session.usermail){
+        const id = req.params.id;
+        const deletePostQuery = {
+            text: 'DELETE FROM blogdata WHERE id = $1',
+            values: [id] // 24 hours in milliseconds
+        };
+
+      pool.query(deletePostQuery, (err, results)=>{
+          if(err){
+              console.log(err)
+              res.render('blogDashboard', {errors: 'Error deleting the blog post', firstname: req.session.usermail, post:'' })
+          }else{
+              res.redirect('/blogDashboard')
+
+          }
+      })
+
+    }else{
+        res.redirect('/login')
+    }
+})
+
 
 
 
@@ -351,13 +374,14 @@ app.post('/addBlogPost', (req, res)=>{
         const userToken = req.body.csrftokenvalue;
         // Get the CRF token value from the session variable
         const serverToken = req.session.token;
+        const author = req.session.usermail;
         if(!validInputs(blogTitle) || userToken !== serverToken ||!validInputs(blogTitle) || !validInputs(blogDescription)) {
             //return res.render("addBlogPost", {errors: errors.array(), csrfToken:req.session.token});
             return res.render("addBlogPost", {errors: 'There is an error in your input', csrfToken:req.session.token});
         }else{
             const insertQuery = {
-                text: 'INSERT INTO blogdata (blogtitle, bloginfo, datecreated, blogDescription) VALUES ($1, $2, $3, $4)',
-                values: [blogTitle, blogData, dateCreated, blogDescription]
+                text: 'INSERT INTO blogdata (blogtitle, bloginfo, datecreated, blogDescription, blogauthor) VALUES ($1, $2, $3, $4, $5)',
+                values: [blogTitle, blogData, dateCreated, blogDescription, author]
             };
             pool.query(insertQuery)
                 .then(res.redirect('/blogDashboard'))

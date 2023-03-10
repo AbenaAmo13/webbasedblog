@@ -3,6 +3,11 @@
     flex-direction: row;
 }
 
+.blog_buttons_forms{
+    display: flex;
+    gap: 25px;
+}
+
 .blog-card {
     border: 1px solid #ddd;
     border-radius: 5px;
