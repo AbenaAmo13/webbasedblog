@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Title</title>
-    <link rel="stylesheet" href="../client/css/styles.css">
+    <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
 <div classname="navBar">
@@ -27,21 +27,20 @@
 
 <div>
     <% if (posts && posts.length > 0) { %>
-        <ul>
             <% posts.forEach(post => { %>
-                <li>
+                <div class="blog-card">
                     <h2><%= post.blogtitle %></h2>
-                    <p><%= post.bloginfo %></p>
                     <p><%= post.datecreated %></p>
-                </li>
+                    <p><%= post.blogdescription %></p>
+                    <form action="/readblog/<%= post.id %>" method="get">
+                        <button type="submit">Read More</button>
+                    </form>
+                </div>
             <% }) %>
-        </ul>
+
     <% } else { %>
         <p>No blog posts found.</p>
     <% } %>
 </div>
-</div>
-
-
 </body>
 </html>

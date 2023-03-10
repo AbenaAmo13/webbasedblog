@@ -8,6 +8,8 @@ const ejs = require('ejs');
 const {check, validationResult} = require('express-validator')
 const nodemailer = require("nodemailer");
 const session = require('express-session');
+/*const multer = require('multer');
+const upload = multer({ dest: 'public/images/' });*/
 const { v4: uuid } = require('uuid')
 
 
@@ -269,6 +271,32 @@ app.get('/email-sent',( req,res) => {
     res.render('sentemail', {email: email})
 })
 
+
+app.get('/readblog/:id', (req, res) => {
+    if(req.session.usermail){
+        const blogId = req.params.id;
+        const getBlogPostQuery = {
+            text: 'SELECT * FROM blogData WHERE id = $1',
+            values: [blogId]
+        };
+        pool.query(getBlogPostQuery, (err, result) => {
+            if (err) {
+                console.error(err);
+                res.render('error', {errors: 'There was an error retrieving the blog post', firstname: req.session.usermail, post:'' });
+            } else {
+                const blogPost = result.rows[0];
+                res.render('fullBlog', {post: blogPost, errors:false, firstname: req.session.usermail});
+            }
+        });
+    }else{
+            res.redirect('/login')
+    }
+
+});
+
+
+
+
 app.get('/blogDashboard', (req, res)=>{
     if(!req.session.usermail){
         //Will be changed to contain name rather than email
@@ -314,20 +342,22 @@ app.post('/addBlogPost', (req, res)=>{
         //const errors = validationResult(req);
         const blogTitle = escapeInput(req.body.blogTitle)
         const  blogData  = escapeInput(req.body.blogData)
+        const blogDescription = escapeInput(req.body.blogDescription)
         const timeCreated = Date.now().toString();
         const dateCreated = new Date(parseInt(timeCreated)).toISOString().slice(0, 10);
+
 
     // Get the CRF token value from the request body
         const userToken = req.body.csrftokenvalue;
         // Get the CRF token value from the session variable
         const serverToken = req.session.token;
-        if(!validInputs(blogTitle) || userToken !== serverToken ||!validInputs(blogTitle)) {
+        if(!validInputs(blogTitle) || userToken !== serverToken ||!validInputs(blogTitle) || !validInputs(blogDescription)) {
             //return res.render("addBlogPost", {errors: errors.array(), csrfToken:req.session.token});
             return res.render("addBlogPost", {errors: 'There is an error in your input', csrfToken:req.session.token});
         }else{
             const insertQuery = {
-                text: 'INSERT INTO blogdata (blogtitle, bloginfo, datecreated) VALUES ($1, $2, $3)',
-                values: [blogTitle, blogData, dateCreated]
+                text: 'INSERT INTO blogdata (blogtitle, bloginfo, datecreated, blogDescription) VALUES ($1, $2, $3, $4)',
+                values: [blogTitle, blogData, dateCreated, blogDescription]
             };
             pool.query(insertQuery)
                 .then(res.redirect('/blogDashboard'))
