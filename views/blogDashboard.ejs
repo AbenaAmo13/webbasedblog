@@ -2,21 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
-    <link rel="stylesheet" href="/css/styles.css">
+    <%- include('partials/head') %>
 </head>
 <body>
-<div classname="navBar">
-    <h1>Speak your mind</h1>
-    <form action="/logout" method="post">
-        <button type="submit">Sign Out</button>
-    </form>
-</div>
 
-<div>
-        <a href="addBlogPost">Add a blog Post</a>
-</div>
-
+<%- include('partials/navigation') %>
 <h2>Welcome: <%= firstname%></h2>
 <% if (errors) { %>
     <div>
@@ -24,8 +14,6 @@
     </div>
 <% } %>
 
-
-<div>
     <% if (posts && posts.length > 0) { %>
             <% posts.forEach(post => { %>
                 <div class="blog-card">

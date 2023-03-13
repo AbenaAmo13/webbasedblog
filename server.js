@@ -117,11 +117,14 @@ function validateInputsAll(reqBody) {
 
     for (const inputName in reqBody) {
         const input = reqBody[inputName];
-        if (!regex.test(input) || !input) {
+        console.log("Length is " + input.length)
+        console.log("The input is: " + input);
+        if (!regex.test(input) || !input || input.length < 1) {
             errors.push(`There is an error in the "${inputName}" input`);
         }
     }
     if (errors.length > 0) {
+        console.log('Error')
         return { isValid: false, errors };
     } else {
         return { isValid: true };
@@ -354,21 +357,9 @@ app.post('/editblog/:id', (req, res)=>{
                         console.log(err)
                         return res.render("editBlog", {errors: 'There was an error when trying to edit your blog', firstname: req.session.usermail, post:blogPost});
                     })
-
-
                 }
-
-
-
-
-
-
-
             }
         })
-
-
-
 
     }else{
         res.redirect('/login')
@@ -416,12 +407,12 @@ app.get('/blogDashboard', (req, res)=>{
         pool.query(getAllPostQuery, (err, result)=>{
             if (err){
                 console.error(err);
-                res.render('blogDashboard', {firstname: req.session.usermail, errors: "There was an error retrieving the posts", post: '' })
+                res.render('blogDashboard', {firstname: req.session.firstname, errors: "There was an error retrieving the posts", post: '' })
 
             }else{
                 const blogPosts = result.rows;
                 console.log("The posts are " + blogPosts);
-                res.render('blogDashboard', {firstname: req.session.usermail, errors: false, posts: blogPosts })
+                res.render('blogDashboard', {firstname: req.session.firstname, errors: false, posts: blogPosts })
             }
         })
 
@@ -501,6 +492,7 @@ app.post('/twofa', [
             console.log(sanitizedTokenInput)
 
 
+
             //Check if the token in the link is correct as the one in the database
             const twofatokenquery = {
                 text: 'SELECT otp FROM otps WHERE otp = $1 AND $2 - creationtime < $3 AND used = $4 AND email = $5 ',
@@ -512,13 +504,26 @@ app.post('/twofa', [
                 values: [sanitizedTokenInput, emailInput] // 24 hours in milliseconds
             };
 
+            const nameQuery = {
+                text: 'SELECT firstname FROM users WHERE email = $1',
+                values: [emailInput],  // 24 hours in milliseconds
+
+            }
+
             pool.query(twofatokenquery).then((result)=>{
                 //console.log(result.rows[0]);
                 if(result.rows.length > 0){
                     //Validate the user
                     req.session.usermail = emailInput;
-                    res.redirect('/blogDashboard');
-                    pool.query(deleteTokenQuery)
+
+                    //Get users name
+                    pool.query(nameQuery)
+                        .then((results)=>{
+                            console.log(results.rows[0])
+                            req.session.firstname= results.rows[0].firstname;
+                            res.redirect('/blogDashboard');
+                            pool.query(deleteTokenQuery)
+                        })
                 }else{
                    res.render('verifyToken', {errors:'Invalid token', email:emailInput, message: emailInput})
                 }
