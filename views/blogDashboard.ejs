@@ -24,7 +24,7 @@
                         <form action="/readblog/<%= post.id %>" method="get">
                             <button type="submit">Read More</button>
                         </form>
-                        <% if (post.blogauthor === firstname) { %>
+                        <% if (post.blogauthor === usermail) { %>
                             <form action="/editblog/<%= post.id %>" method="get">
                                 <button type="submit">Edit</button>
                             </form>

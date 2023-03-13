@@ -407,12 +407,12 @@ app.get('/blogDashboard', (req, res)=>{
         pool.query(getAllPostQuery, (err, result)=>{
             if (err){
                 console.error(err);
-                res.render('blogDashboard', {firstname: req.session.firstname, errors: "There was an error retrieving the posts", post: '' })
+                res.render('blogDashboard', {firstname: req.session.firstname, errors: "There was an error retrieving the posts", post: '', usermail:req.session.usermail })
 
             }else{
                 const blogPosts = result.rows;
                 console.log("The posts are " + blogPosts);
-                res.render('blogDashboard', {firstname: req.session.firstname, errors: false, posts: blogPosts })
+                res.render('blogDashboard', {firstname: req.session.firstname, errors: false, posts: blogPosts, usermail: req.session.usermail })
             }
         })
 
